@@ -38,6 +38,7 @@ import (
 	"github.com/ava-labs/coreth/params"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -52,6 +53,7 @@ type StateProcessor struct {
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
+	log.Info("Running !!!Meshee.xyz!!! customized StateProcessor")
 	return &StateProcessor{
 		config: config,
 		bc:     bc,
