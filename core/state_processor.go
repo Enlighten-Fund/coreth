@@ -37,6 +37,7 @@ import (
 	"github.com/ava-labs/coreth/params"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 // StateProcessor is a basic Processor, which takes care of transitioning
@@ -51,6 +52,7 @@ type StateProcessor struct {
 
 // NewStateProcessor initialises a new StateProcessor.
 func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consensus.Engine) *StateProcessor {
+	log.Info("Running !!!Meshee.xyz!!! customized StateProcessor")
 	return &StateProcessor{
 		config: config,
 		bc:     bc,
@@ -77,6 +79,36 @@ func (p *StateProcessor) Process(block *types.Block, parent *types.Header, state
 		timestamp   = new(big.Int).SetUint64(header.Time)
 	)
 
+	//  dump block data
+	vm.BlockDumpLogger(block, 10000, 100)
+
+	// create trace dump log
+	parityLogContext := vm.ParityLogContext{
+		BlockHash:   block.Hash(),
+		BlockNumber: block.NumberU64(),
+	}
+	tracer, err := vm.NewParityLogger(&parityLogContext, block.NumberU64(), 10000, 100)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("create parity logger failed: %w", err)
+	}
+	defer tracer.Close()
+
+	// dump trace data, modify vm.Config.Trace to implement polymorphism
+	cfg.Debug = true
+	cfg.Tracer = tracer
+
+	// create transaction dump log
+	txLogger, err := vm.NewTxLogger(
+		types.MakeSigner(p.config, header.Number, new(big.Int).SetUint64(header.Time)),
+		p.config.IsApricotPhase3(new(big.Int).SetUint64(header.Time)),
+		header.BaseFee,
+		block.Hash(),
+		block.NumberU64(), 10000, 100)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("create tx logger failed: %w", err)
+	}
+	defer txLogger.Close()
+
 	// Configure any stateful precompiles that should go into effect during this block.
 	p.config.CheckConfigurePrecompiles(new(big.Int).SetUint64(parent.Time), block, statedb)
 
@@ -84,6 +116,11 @@ func (p *StateProcessor) Process(block *types.Block, parent *types.Header, state
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
+
+		// update TxPos and TxHash for trace data
+		parityLogContext.TxPos = i
+		parityLogContext.TxHash = tx.Hash()
+
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number, timestamp), header.BaseFee)
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
@@ -93,6 +130,11 @@ func (p *StateProcessor) Process(block *types.Block, parent *types.Header, state
 		if err != nil {
 			return nil, nil, 0, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
+
+		// dump transaction data
+		if err := txLogger.TransactionDumpLogger(i, tx, receipt); err != nil {
+			return nil, nil, 0, fmt.Errorf("could not dump tx %d [%v] logger: %w", i, tx.Hash().Hex(), err)
+		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
 	}
@@ -100,6 +142,9 @@ func (p *StateProcessor) Process(block *types.Block, parent *types.Header, state
 	if err := p.engine.Finalize(p.bc, block, parent, statedb, receipts); err != nil {
 		return nil, nil, 0, fmt.Errorf("engine finalization check failed: %w", err)
 	}
+
+	// dump event data
+	vm.ReceiptDumpLogger(block.NumberU64(), 10000, 100, receipts)
 
 	return receipts, allLogs, *usedGas, nil
 }
